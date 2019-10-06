@@ -1,0 +1,19 @@
+[package]
+name = "kvs"
+version = "0.1.0"
+authors = ["Reto Hablützel <rethab@protonmail.ch>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.33.0"
+
+[dev-dependencies]
+assert_cmd = "0.11.0"
+predicates = "1.0.0"
+
+[lib]
+  test = false
+
+[[kvs]]
+  doctest = false
+  test = false
