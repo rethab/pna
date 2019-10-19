@@ -16,6 +16,7 @@
 use failure::Fail;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::fs::{File, OpenOptions};
@@ -75,6 +76,7 @@ pub type Result<T> = std::result::Result<T, KvError>;
 /// A simple key value store
 pub struct KvStore {
     file: File,
+    values: HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -99,7 +101,21 @@ impl KvStore {
             .write(true)
             .create(true)
             .open(path.join("db"))?;
-        Ok(KvStore { file })
+        let values = KvStore::read_log(&file)?;
+        Ok(KvStore { file, values })
+    }
+
+    fn read_log(db: &File) -> Result<HashMap<String, String>> {
+        let mut values = HashMap::new();
+        let stream = serde_json::Deserializer::from_reader(db).into_iter::<Command>();
+        for cmd in stream {
+            use Command::*;
+            match cmd? {
+                Set { key, value } => values.insert(key, value),
+                Remove { key } => values.remove(&key),
+            };
+        }
+        Ok(values)
     }
 
     /// Adds a new key-value mapping to the store
@@ -113,7 +129,11 @@ impl KvStore {
     ///  assert_eq!(Some(String::from("bar")), kv.get(String::from("foo")));
     /// ```
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        let cmd = Command::Set { key, value };
+        let cmd = Command::Set {
+            key: key.clone(),
+            value: value.clone(),
+        };
+        self.values.insert(key, value);
         self.append(&cmd)
     }
 
@@ -128,18 +148,7 @@ impl KvStore {
     ///  assert_eq!(Some(String::from("bar")), kv.get(String::from("foo")));
     /// ```
     pub fn get(&mut self, k: String) -> Result<Option<String>> {
-        self.file.seek(SeekFrom::Start(0))?;
-        let mut result = None;
-        let stream = serde_json::Deserializer::from_reader(&self.file).into_iter::<Command>();
-        for cmd in stream {
-            use Command::*;
-            match cmd? {
-                Set { key, value } if k == key => result = Some(value),
-                Remove { key } if k == key => result = None,
-                _ => {}
-            }
-        }
-        Ok(result)
+        Ok(self.values.get(&k).map(|v| v.to_owned()))
     }
 
     /// Removes the value associated with the specified key
@@ -155,7 +164,7 @@ impl KvStore {
     ///  assert_eq!(None, kv.get(String::from("foo")));
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
-        match self.get(key.clone())? {
+        match self.values.remove(&key) {
             None => Err(KvError::KeyNotFound),
             Some(_) => {
                 let cmd = Command::Remove { key };
