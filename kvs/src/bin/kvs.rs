@@ -1,9 +1,10 @@
 extern crate kvs;
 
 use kvs::KvStore;
+use kvs::Result;
 use structopt::StructOpt;
 
-fn main() {
+fn main() -> Result<()> {
     let opt = Cmd::from_args();
     let mut kv = KvStore::new();
 
