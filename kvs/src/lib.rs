@@ -37,6 +37,9 @@ pub enum KvError {
         /// Underlying serde error
         cause: serde_json::error::Error,
     },
+
+    /// Key was not found
+    KeyNotFound,
 }
 
 impl fmt::Display for KvError {
@@ -49,6 +52,7 @@ impl fmt::Display for KvError {
                 "SerializationError: {}",
                 cause.description().to_owned()
             ),
+            KeyNotFound => write!(fmt, "Key not found"),
         }
     }
 }
@@ -81,20 +85,20 @@ enum Command {
 }
 
 impl KvStore {
-    /// Creates a key value store based on an existing database
+    /// Creates a key value store in the specified directory
     ///
     /// # Examples
     ///
     /// ```
     ///  # use kvs::KvStore;
-    ///  let mut kv = KvStore::open(Path::new("/tmp/mydb"));
+    ///  let mut kv = KvStore::open(Path::new("/tmp/"));
     /// ```
     pub fn open(path: &Path) -> Result<KvStore> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open(path)?;
+            .open(path.join("db"))?;
         Ok(KvStore { file })
     }
 
@@ -152,7 +156,7 @@ impl KvStore {
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
         match self.get(key.clone())? {
-            None => Ok(()),
+            None => Err(KvError::KeyNotFound),
             Some(_) => {
                 let cmd = Command::Remove { key };
                 self.append(&cmd)

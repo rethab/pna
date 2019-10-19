@@ -1,5 +1,6 @@
 extern crate kvs;
 
+use kvs::KvError;
 use kvs::KvStore;
 use kvs::Result;
 use std::path::Path;
@@ -8,7 +9,7 @@ use structopt::StructOpt;
 
 fn main() -> Result<()> {
     let opt = Cmd::from_args();
-    let mut kv = KvStore::open(Path::new("/tmp/mydb"))?;
+    let mut kv = KvStore::open(Path::new("."))?;
 
     match opt {
         Cmd::Set { key, value } => kv.set(key, value),
@@ -18,11 +19,17 @@ fn main() -> Result<()> {
                 Ok(())
             }
             None => {
-                eprintln!("No value found for key {}", key);
-                process::exit(1);
+                println!("Key not found");
+                Ok(())
             }
         },
-        Cmd::Remove { key } => kv.remove(key),
+        Cmd::Remove { key } => match kv.remove(key) {
+            Err(KvError::KeyNotFound) => {
+                println!("Key not found");
+                process::exit(1);
+            }
+            x => x,
+        },
     }
 }
 
