@@ -1,4 +1,5 @@
 #![deny(missing_docs)]
+#![feature(seek_convenience)]
 
 //! A key value store implementation for the course Practical Networked Applications from PingCAP
 //!
@@ -41,6 +42,9 @@ pub enum KvError {
 
     /// Key was not found
     KeyNotFound,
+
+    /// Something with the database seems inconsitent. Could be corrupted file or bug
+    Consistency(String),
 }
 
 impl fmt::Display for KvError {
@@ -54,6 +58,7 @@ impl fmt::Display for KvError {
                 cause.description().to_owned()
             ),
             KeyNotFound => write!(fmt, "Key not found"),
+            Consistency(msg) => write!(fmt, "ConsistencyError: {}", msg),
         }
     }
 }
@@ -73,13 +78,15 @@ impl From<serde_json::error::Error> for KvError {
 /// Result type for all operations in this library
 pub type Result<T> = std::result::Result<T, KvError>;
 
+struct ValueOffset(u64);
+
 /// A simple key value store
 pub struct KvStore {
     file: File,
-    values: HashMap<String, String>,
+    values: HashMap<String, ValueOffset>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 enum Command {
     Set { key: String, value: String },
 
@@ -105,15 +112,17 @@ impl KvStore {
         Ok(KvStore { file, values })
     }
 
-    fn read_log(db: &File) -> Result<HashMap<String, String>> {
+    fn read_log(mut db: &File) -> Result<HashMap<String, ValueOffset>> {
         let mut values = HashMap::new();
-        let stream = serde_json::Deserializer::from_reader(db).into_iter::<Command>();
-        for cmd in stream {
-            use Command::*;
+
+        let mut pos = db.stream_position()?;
+        let mut stream = serde_json::Deserializer::from_reader(db).into_iter::<Command>();
+        while let Some(cmd) = stream.next() {
             match cmd? {
-                Set { key, value } => values.insert(key, value),
-                Remove { key } => values.remove(&key),
+                Command::Set { key, .. } => values.insert(key, ValueOffset(pos)),
+                Command::Remove { key } => values.remove(&key),
             };
+            pos = stream.byte_offset() as u64;
         }
         Ok(values)
     }
@@ -133,8 +142,9 @@ impl KvStore {
             key: key.clone(),
             value: value.clone(),
         };
-        self.values.insert(key, value);
-        self.append(&cmd)
+        let offset = self.append(&cmd)?;
+        self.values.insert(key, offset);
+        Ok(())
     }
 
     /// Returns the value associated with the specified key
@@ -147,8 +157,12 @@ impl KvStore {
     ///  kv.set(String::from("foo"), String::from("bar"));
     ///  assert_eq!(Some(String::from("bar")), kv.get(String::from("foo")));
     /// ```
-    pub fn get(&mut self, k: String) -> Result<Option<String>> {
-        Ok(self.values.get(&k).map(|v| v.to_owned()))
+    pub fn get(&self, key: String) -> Result<Option<String>> {
+        let file = &self.file;
+        match self.values.get(&key) {
+            None => Ok(None),
+            Some(offset) => Ok(Some(KvStore::read_at_offset(file, offset)?)),
+        }
     }
 
     /// Removes the value associated with the specified key
@@ -168,16 +182,32 @@ impl KvStore {
             None => Err(KvError::KeyNotFound),
             Some(_) => {
                 let cmd = Command::Remove { key };
-                self.append(&cmd)
+                self.append(&cmd)?;
+                Ok(())
             }
         }
     }
 
-    fn append(&mut self, cmd: &Command) -> Result<()> {
+    fn read_at_offset(mut file: &File, offset: &ValueOffset) -> Result<String> {
+        file.seek(SeekFrom::Start(offset.0))?;
+        let maybe_cmd = serde_json::Deserializer::from_reader(file)
+            .into_iter::<Command>()
+            .next();
+        match maybe_cmd {
+            Some(Ok(Command::Set { value, .. })) => Ok(value),
+            _ => Err(KvError::Consistency(format!(
+                "No 'Set' command at offset {}",
+                offset.0
+            ))),
+        }
+    }
+
+    fn append(&mut self, cmd: &Command) -> Result<ValueOffset> {
         let contents = serde_json::to_string(cmd)?;
         let bytes = contents.as_bytes();
         self.file.seek(SeekFrom::End(0))?;
+        let offset = ValueOffset(self.file.stream_position()?);
         self.file.write_all(bytes)?;
-        Ok(())
+        Ok(offset)
     }
 }
