@@ -42,7 +42,7 @@ pub fn write_to_file(ms: &[Move], file_name: &Path) -> Result<(), String> {
         let bson = bson::to_bson(m).map_err(|err| err.description().to_owned())?;
         let doc = bson
             .as_document()
-            .ok_or("failed to create document".to_owned())?;
+            .ok_or_else(|| "failed to create document".to_owned())?;
         let mut buf = Vec::new();
         bson::encode_document(&mut buf, doc).map_err(|err| err.description().to_owned())?;
         file.write_all(&buf)
@@ -100,7 +100,7 @@ pub fn write_to_buf(ms: &[Move], mut buf: &mut VecWriter) -> Result<(), String> 
         let bson = bson::to_bson(m).map_err(|err| err.description().to_owned())?;
         let doc = bson
             .as_document()
-            .ok_or("failed to create document".to_owned())?;
+            .ok_or_else(|| "failed to create document".to_owned())?;
         bson::encode_document(&mut buf, doc).map_err(|err| err.description().to_owned())?;
     }
     Ok(())
