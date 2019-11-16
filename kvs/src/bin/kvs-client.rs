@@ -1,7 +1,7 @@
 extern crate kvs;
 
-use structopt::StructOpt;
 use std::process;
+use structopt::StructOpt;
 
 mod protocol {
     tonic::include_proto!("kvs");
@@ -11,7 +11,6 @@ use protocol::{client::KvsClient, GetRequest, RemoveRequest, SetRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     let cmd = Cmd::from_args();
 
     let client = |mb_addr: Option<String>| {

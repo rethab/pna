@@ -5,7 +5,6 @@ extern crate slog;
 extern crate slog_async;
 extern crate slog_term;
 
-use std::process;
 use crate::slog::Drain;
 use kvs::engine::{KvError, KvsEngine};
 use kvs::store::KvStore;
