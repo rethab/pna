@@ -16,6 +16,10 @@ message GetRequest {
 }
 
 message GetReply {
+  Value value = 1;
+}
+
+message Value {
   string value = 1;
 }
 
