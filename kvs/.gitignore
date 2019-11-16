@@ -1,3 +1,6 @@
 /target/
 /tests/tests.rs
+/tests/cli.rs
+/tests/kv_store.rs
 db
+db.active

@@ -100,6 +100,9 @@ struct ValuePointer {
     version: Version,
 }
 
+/// a pluggable storage engine for this kv store
+pub trait KvsEngine {}
+
 /// A simple key value store
 pub struct KvStore {
     db_dir: PathBuf,
