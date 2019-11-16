@@ -1,3 +1,7 @@
+extern crate slog;
+extern crate slog_async;
+extern crate slog_term;
+use crate::slog::Drain;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use slog::Logger;
@@ -126,7 +130,7 @@ impl KvStore {
     ///  # use std::path::Path;
     ///  let mut kv = KvStore::open(Path::new("/tmp/"));
     /// ```
-    pub fn open(dir: &Path, logger: Logger) -> Result<KvStore> {
+    pub fn open(dir: &Path) -> Result<KvStore> {
         let (mut values, highest_counter) = KvStore::read_immutable_logs(&dir)?;
 
         let active_path = dir.join(KvStore::ACTIVE_FILE_NAME);
@@ -160,7 +164,11 @@ impl KvStore {
             .create(true)
             .open(&active_path)?;
 
-        info!(logger, "KvStore booting..");
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        let logger = slog::Logger::root(drain, o!("component" => "engine"));
+        info!(logger, "initializing at {}", dir.to_string_lossy());
 
         Ok(KvStore {
             db_dir: dir.to_owned(),

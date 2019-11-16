@@ -8,7 +8,6 @@ extern crate slog_term;
 use crate::slog::Drain;
 use kvs::engine::{KvError, KvsEngine};
 use kvs::store::KvStore;
-use slog::Logger;
 use std::path::Path;
 use std::str::FromStr;
 use structopt::StructOpt;
@@ -23,9 +22,7 @@ use protocol::{
     GetReply, GetRequest, RemoveReply, RemoveRequest, SetReply, SetRequest, Value,
 };
 
-pub struct MyKvsServer {
-    logger: Logger,
-}
+pub struct KvsServerImpl { }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_logger = root.new(o!("component" => "server"));
     info!(server_logger, "started at {}", addr);
 
-    let server = MyKvsServer::new(root);
+    let server = KvsServerImpl{};
 
     Server::builder()
         .add_service(KvsServer::new(server))
@@ -55,29 +52,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-impl MyKvsServer {
-    fn new(logger: Logger) -> MyKvsServer {
-        MyKvsServer { logger }
-    }
+impl KvsServerImpl {
 
     fn kverror_to_status(kve: KvError) -> Status {
         Status::new(Code::Internal, format!("{:?}", kve))
     }
 
     fn kv(&self) -> Result<KvStore, Status> {
-        let engine_logger = self.logger.new(o!("component" => "store"));
-        let store = KvStore::open(Path::new("."), engine_logger);
-        Ok(store.map_err(MyKvsServer::kverror_to_status)?)
+        let store = KvStore::open(Path::new("."));
+        Ok(store.map_err(KvsServerImpl::kverror_to_status)?)
     }
 }
 
 #[tonic::async_trait]
-impl Kvs for MyKvsServer {
+impl Kvs for KvsServerImpl {
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetReply>, Status> {
         let mut kv = self.kv()?;
         let mb_value = kv
             .get(request.into_inner().key)
-            .map_err(MyKvsServer::kverror_to_status)?;
+            .map_err(KvsServerImpl::kverror_to_status)?;
         match mb_value {
             Some(value) => Ok(Response::new(GetReply {
                 value: Some(Value { value }),
@@ -90,7 +83,7 @@ impl Kvs for MyKvsServer {
         let mut kv = self.kv()?;
         let req = request.into_inner();
         kv.set(req.key, req.value)
-            .map_err(MyKvsServer::kverror_to_status)?;
+            .map_err(KvsServerImpl::kverror_to_status)?;
         Ok(Response::new(SetReply {}))
     }
 
@@ -100,7 +93,7 @@ impl Kvs for MyKvsServer {
     ) -> Result<Response<RemoveReply>, Status> {
         let mut kv = self.kv()?;
         kv.remove(request.into_inner().key)
-            .map_err(MyKvsServer::kverror_to_status)?;
+            .map_err(KvsServerImpl::kverror_to_status)?;
         Ok(Response::new(RemoveReply {}))
     }
 }
