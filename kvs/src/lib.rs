@@ -329,7 +329,7 @@ impl KvStore {
             .unwrap_or_else(|| 0);
         let cmd = Command::Set {
             key: key.clone(),
-            value: value.clone(),
+            value: value,
             version,
         };
         let offset = self.append(&cmd, false)?;
