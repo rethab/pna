@@ -5,9 +5,11 @@ extern crate slog;
 extern crate slog_async;
 extern crate slog_term;
 
+use std::process;
 use crate::slog::Drain;
 use kvs::engine::{KvError, KvsEngine};
 use kvs::store::KvStore;
+use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 use structopt::StructOpt;
@@ -22,13 +24,13 @@ use protocol::{
     GetReply, GetRequest, RemoveReply, RemoveRequest, SetReply, SetRequest, Value,
 };
 
-pub struct KvsServerImpl { }
+pub struct KvsServerImpl {}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opt = Opt::from_args();
 
-    let _engine = opt.engine.unwrap_or_else({ || Engine::Kvs });
+    let engine = opt.engine.unwrap_or_else({ || Engine::Kvs });
     let addr = opt
         .addr
         .unwrap_or_else({ || "127.0.0.1:4000".to_owned() })
@@ -40,9 +42,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = slog::Logger::root(drain, o!());
 
     let server_logger = root.new(o!("component" => "server"));
+    info!(
+        server_logger,
+        "PNA: Rust Key/Value Store ({})",
+        env!("CARGO_PKG_VERSION")
+    );
     info!(server_logger, "started at {}", addr);
+    info!(server_logger, "using storage engine {}", engine);
 
-    let server = KvsServerImpl{};
+    let server = KvsServerImpl {};
 
     Server::builder()
         .add_service(KvsServer::new(server))
@@ -53,7 +61,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 impl KvsServerImpl {
-
     fn kverror_to_status(kve: KvError) -> Status {
         Status::new(Code::Internal, format!("{:?}", kve))
     }
@@ -92,9 +99,11 @@ impl Kvs for KvsServerImpl {
         request: Request<RemoveRequest>,
     ) -> Result<Response<RemoveReply>, Status> {
         let mut kv = self.kv()?;
-        kv.remove(request.into_inner().key)
-            .map_err(KvsServerImpl::kverror_to_status)?;
-        Ok(Response::new(RemoveReply {}))
+        match kv.remove(request.into_inner().key) {
+            Ok(()) => Ok(Response::new(RemoveReply { removed: true })),
+            Err(KvError::KeyNotFound) => Ok(Response::new(RemoveReply { removed: false })),
+            Err(other) => Err(KvsServerImpl::kverror_to_status(other)),
+        }
     }
 }
 
@@ -123,6 +132,15 @@ impl FromStr for Engine {
             "kvs" => Ok(Engine::Kvs),
             "sled" => Ok(Engine::Sled),
             other => Err(format!("Engine '{}' does not exist", other)),
+        }
+    }
+}
+
+impl fmt::Display for Engine {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Engine::Kvs => write!(fmt, "kvs"),
+            Engine::Sled => write!(fmt, "sled"),
         }
     }
 }

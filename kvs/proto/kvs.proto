@@ -36,4 +36,5 @@ message RemoveRequest {
 }
 
 message RemoveReply {
+  bool removed = 1;
 }
