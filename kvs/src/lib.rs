@@ -15,9 +15,15 @@
 //!  assert_eq!(None, kv.get(String::from("foo")).unwrap());
 //! ```
 
+#[macro_use]
+extern crate slog;
+extern crate slog_async;
+extern crate slog_term;
+use crate::slog::Drain;
 use failure::Fail;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use slog::Logger;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
@@ -28,9 +34,6 @@ use std::io::Write;
 use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-
-// controls whether some functions write debug information
-const DEBUG: bool = false;
 
 /// Errors reported by this library
 #[derive(Debug, Fail)]
@@ -125,6 +128,8 @@ pub struct KvStore {
     immutables_since_last_compaction: usize,
 
     values: HashMap<String, ValuePointer>,
+
+    logger: Logger,
 }
 
 impl fmt::Display for KvStore {
@@ -153,12 +158,6 @@ enum Command {
     Remove {
         key: String,
     },
-}
-
-fn debug(msg: String) {
-    if DEBUG {
-        println!("{}", msg)
-    }
 }
 
 // helper type for the function read_logs that returns information about a log file
@@ -226,6 +225,13 @@ impl KvStore {
             .create(true)
             .open(&active_path)?;
 
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        let logger = slog::Logger::root(drain, o!("version" => "0.5"));
+
+        info!(logger, "KvStore booting..");
+
         Ok(KvStore {
             db_dir: dir.to_owned(),
             active_for_write: Rc::new(RefCell::new(active_for_write)),
@@ -234,6 +240,7 @@ impl KvStore {
             immutable_counter: highest_counter,
             immutables_since_last_compaction: 0,
             values,
+            logger,
         })
     }
 
@@ -400,7 +407,7 @@ impl KvStore {
     // active file to immutable.X and creating a new
     // active file
     fn rotate(&mut self) -> Result<()> {
-        debug("Rotating".to_owned());
+        info!(self.logger, "Rotating");
         self.immutable_counter += 1;
         self.immutables_since_last_compaction += 1;
         let immutable_file_path = self
@@ -452,7 +459,7 @@ impl KvStore {
     // because it was the only obsolete command in a file,
     // while the 'Remove' in the next file would be removed.
     fn compact(&mut self) -> Result<()> {
-        debug("Compacting".to_owned());
+        info!(self.logger, "Compacting");
         let mut immutables: Vec<PathBuf> = fs::read_dir(&self.db_dir)?
             .filter_map(|p| p.ok())
             .map(|e| e.path())
@@ -467,7 +474,7 @@ impl KvStore {
     }
 
     fn compact_file(&mut self, path: &Path) -> Result<()> {
-        debug(format!("Compacting file {}", path.to_string_lossy()));
+        debug!(self.logger, "Compacting file {}", path.to_string_lossy());
         let mut active_values = HashMap::new();
         let mut inactive_amount = 0;
 
@@ -483,7 +490,7 @@ impl KvStore {
                     ..
                 } => match self.values.get(key) {
                     Some(value) if *version == value.version.0 => {
-                        // debug(format!("Retaining {}, because version matches", key));
+                        debug!(self.logger, "Retaining {}, because version matches", key);
                         active_values.insert(key.clone(), cmd);
                     }
                     _ => inactive_amount += 1,
@@ -493,11 +500,12 @@ impl KvStore {
         }
 
         if inactive_amount > 0 {
-            debug(format!(
+            debug!(
+                self.logger,
                 "Inactive amount: {}, values: {}",
                 inactive_amount,
                 active_values.len()
-            ));
+            );
             for (_, cmd) in active_values {
                 self.append(&cmd, true)?;
             }
